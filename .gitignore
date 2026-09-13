@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+*.pyc
+python-3.12.10-amd64.exe
+random_forest_model.pkl
