@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import time
+from supabase import create_client
 import matplotlib.pyplot as plt
 import numpy as np
 from streamlit_autorefresh import st_autorefresh
@@ -14,6 +16,16 @@ st.set_page_config(
     page_title="Data Center Energy Efficiency Monitor",
     page_icon="⚡",
     layout="wide"
+)
+
+
+# =========================================================
+# SUPABASE CONNECTION
+# =========================================================
+
+supabase = create_client(
+    st.secrets["SUPABASE_URL"],
+    st.secrets["SUPABASE_KEY"]
 )
 
 
@@ -33,6 +45,14 @@ st_autorefresh(
 
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
+
+
+# =========================================================
+# MONITORING INSERT TIMER
+# =========================================================
+
+if "last_monitoring_insert" not in st.session_state:
+    st.session_state.last_monitoring_insert = 0
 
 
 # =========================================================
@@ -129,52 +149,89 @@ model_rmse = 0.0253
 
 
 # =========================================================
-# LOAD MONITORING DATA
+# LOAD MONITORING DATA FROM SUPABASE
 # =========================================================
 
-monitoring_df = pd.read_csv(
-    "data/monitoring_data.csv"
+monitoring_columns = [
+    "Timestamp",
+    "Temperature_C",
+    "Humidity_Percent",
+    "IT_Load_kW",
+    "Cooling_Power_kW",
+    "Total_Power_kW",
+    "PUE"
+]
+
+
+# =========================================================
+# INSERT NEW READING ONLY ONCE PER 30 SECONDS
+# =========================================================
+
+current_time = time.time()
+
+if (
+    current_time
+    - st.session_state.last_monitoring_insert
+    >= 30
+):
+
+    new_reading = generate_live_reading()
+
+    supabase.table(
+        "monitoring_data"
+    ).insert(
+        new_reading
+    ).execute()
+
+    st.session_state.last_monitoring_insert = current_time
+
+
+# =========================================================
+# RELOAD LATEST 100 READINGS FROM SUPABASE
+# =========================================================
+
+response = (
+    supabase
+    .table("monitoring_data")
+    .select(",".join(monitoring_columns))
+    .order("Timestamp", desc=True)
+    .limit(100)
+    .execute()
+)
+
+
+monitoring_df = pd.DataFrame(
+    response.data
 )
 
 
 # =========================================================
-# GENERATE NEW LIVE READING
+# CHECK MONITORING DATA
 # =========================================================
 
-new_reading = generate_live_reading()
+if monitoring_df.empty:
 
+    st.error(
+        "No monitoring data was returned from Supabase."
+    )
 
-# =========================================================
-# ADD NEW READING
-# =========================================================
+    st.info(
+        "Please check that the monitoring_data table "
+        "contains records and that the Supabase policies "
+        "allow SELECT access."
+    )
 
-monitoring_df = pd.concat(
-    [
-        monitoring_df,
-        pd.DataFrame([new_reading])
-    ],
-    ignore_index=True
-)
-
-
-# =========================================================
-# KEEP LATEST 100 READINGS
-# =========================================================
-
-monitoring_df = monitoring_df.tail(
-    100
-).reset_index(
-    drop=True
-)
+    st.stop()
 
 
 # =========================================================
-# SAVE UPDATED MONITORING DATA
+# SORT MONITORING DATA
 # =========================================================
 
-monitoring_df.to_csv(
-    "data/monitoring_data.csv",
-    index=False
+monitoring_df = (
+    monitoring_df
+    .sort_values("Timestamp")
+    .reset_index(drop=True)
 )
 
 
@@ -307,10 +364,27 @@ st.sidebar.write(
 
 
 # =========================================================
-# DASHBOARD NAVIGATION
+# SIDEBAR DATABASE INFORMATION
 # =========================================================
 
+st.sidebar.write(
+    "### Database"
+)
+
+st.sidebar.write(
+    "🗄️ Supabase PostgreSQL"
+)
+
+st.sidebar.write(
+    "📡 Persistent Monitoring"
+)
+
 st.sidebar.divider()
+
+
+# =========================================================
+# DASHBOARD NAVIGATION
+# =========================================================
 
 st.sidebar.subheader(
     "🧭 Dashboard Navigation"
@@ -639,11 +713,6 @@ if st.button(
     use_container_width=True
 ):
 
-    # -----------------------------------------------------
-    # CLEAN ML INPUT
-    # -----------------------------------------------------
-    # Total_Power_kW is intentionally NOT included.
-
     input_data = pd.DataFrame(
         [
             {
@@ -656,18 +725,10 @@ if st.button(
     )
 
 
-    # -----------------------------------------------------
-    # PREDICT PUE
-    # -----------------------------------------------------
-
     prediction = model.predict(
         input_data
     )[0]
 
-
-    # -----------------------------------------------------
-    # PREDICTED PUE STATUS
-    # -----------------------------------------------------
 
     if prediction <= 1.30:
 
@@ -947,10 +1008,6 @@ st.subheader(
 )
 
 
-# IMPORTANT:
-# Exactly 4 features because the clean model
-# was trained using exactly 4 features.
-
 features = [
     "Temperature_C",
     "Humidity_Percent",
@@ -1120,7 +1177,8 @@ st.subheader(
 
 
 st.write(
-    "Simulated sensor readings from the data center. "
+    "Simulated sensor readings are stored permanently "
+    "in the Supabase PostgreSQL database. "
     "The dashboard automatically refreshes every 30 seconds."
 )
 
@@ -1793,6 +1851,13 @@ st.write(
 )
 
 
+st.write(
+    "Monitoring readings are stored permanently in "
+    "Supabase PostgreSQL instead of relying on the "
+    "temporary Streamlit Cloud filesystem."
+)
+
+
 st.info(
     "🎯 Main Goal: Improve data center energy efficiency "
     "by monitoring power consumption and identifying "
@@ -2115,4 +2180,8 @@ st.divider()
 st.caption(
     "⚡ Data Center Energy Efficiency Monitoring and "
     "PUE Prediction Using Machine Learning"
+)
+
+st.caption(
+    "🗄️ Monitoring data powered by Supabase PostgreSQL"
 )

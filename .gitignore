@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 python-3.12.10-amd64.exe
 random_forest_model.pkl
+data/monitoring_data.csv
+.streamlit/secrets.toml
