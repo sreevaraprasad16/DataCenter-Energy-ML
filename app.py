@@ -1,6 +1,4 @@
-```python
 import time
-
 import joblib
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -1376,4 +1374,3 @@ st.caption(
     "Data Center Energy Efficiency Monitoring and "
     "PUE Prediction Using Machine Learning"
 )
-```
