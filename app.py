@@ -237,6 +237,13 @@ current_pue = float(
 
 current_predicted_pue = latest["Predicted_PUE"]
 
+if pd.notna(current_predicted_pue):
+    prediction_error = abs(
+        current_pue - float(current_predicted_pue)
+    )
+else:
+    prediction_error = None
+
 
 # ============================================================
 # SIDEBAR
@@ -433,48 +440,49 @@ with live_col4:
     )
 
 
-power_col1, power_col2, power_col3, power_col4 = st.columns(4)
-
+power_col1, power_col2, power_col3, power_col4, power_col5 = st.columns(5)
 
 with power_col1:
-
     st.metric(
         "Total Power",
         f"{current_total_power:.2f} kW"
     )
 
-
 with power_col2:
-
     st.metric(
         "Actual PUE",
         f"{current_pue:.3f}"
     )
 
-
 with power_col3:
-
     if pd.notna(current_predicted_pue):
-
         st.metric(
             "Predicted PUE",
             f"{float(current_predicted_pue):.3f}"
         )
-
     else:
-
         st.metric(
             "Predicted PUE",
             "Waiting"
         )
 
-
 with power_col4:
-
     st.metric(
         "Last Reading",
         latest["Timestamp"].strftime("%H:%M:%S")
     )
+
+with power_col5:
+    if prediction_error is not None:
+        st.metric(
+            "Prediction Error",
+            f"{prediction_error:.3f}"
+        )
+    else:
+        st.metric(
+            "Prediction Error",
+            "Waiting"
+        )
 
 
 # ============================================================
