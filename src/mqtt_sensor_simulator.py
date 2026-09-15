@@ -1,7 +1,7 @@
 import json
 import random
 import time
-
+import os
 import paho.mqtt.client as mqtt
 
 
@@ -30,7 +30,7 @@ def generate_sensor_data():
     )
 
     return {
-    "Device_ID": "DC-SENSOR-01",
+    "Device_ID": os.getenv("DEVICE_ID", "DC-SENSOR-01"),
     "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "Temperature_C": temperature,
         "Humidity_Percent": humidity,
