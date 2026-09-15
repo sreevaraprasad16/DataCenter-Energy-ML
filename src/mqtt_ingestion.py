@@ -20,6 +20,7 @@ supabase = create_client(
 
 
 REQUIRED_FIELDS = [
+    "Device_ID",
     "Timestamp",
     "Temperature_C",
     "Humidity_Percent",

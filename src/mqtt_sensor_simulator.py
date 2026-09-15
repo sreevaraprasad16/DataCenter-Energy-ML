@@ -30,9 +30,8 @@ def generate_sensor_data():
     )
 
     return {
-        "Timestamp": time.strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
+    "Device_ID": "DC-SENSOR-01",
+    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "Temperature_C": temperature,
         "Humidity_Percent": humidity,
         "IT_Load_kW": it_load,
