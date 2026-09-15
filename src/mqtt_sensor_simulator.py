@@ -1,26 +1,59 @@
 import json
+import os
 import random
 import time
-import os
+
 import paho.mqtt.client as mqtt
 
 
-BROKER = "test.mosquitto.org"
-PORT = 1883
-TOPIC = "datacenter/energy/telemetry"
+BROKER = os.getenv(
+    "MQTT_BROKER",
+    "test.mosquitto.org"
+)
+
+PORT = int(
+    os.getenv(
+        "MQTT_PORT",
+        "1883"
+    )
+)
+
+TOPIC = os.getenv(
+    "MQTT_TOPIC",
+    "datacenter/energy/telemetry"
+)
+
+DEVICE_ID = os.getenv(
+    "DEVICE_ID",
+    "DC-SENSOR-01"
+)
 
 
 def generate_sensor_data():
-    temperature = round(random.uniform(20, 30), 2)
-    humidity = round(random.uniform(40, 60), 2)
-    it_load = round(random.uniform(100, 250), 2)
+    temperature = round(
+        random.uniform(20, 30),
+        2
+    )
+
+    humidity = round(
+        random.uniform(40, 60),
+        2
+    )
+
+    it_load = round(
+        random.uniform(100, 250),
+        2
+    )
+
     cooling_power = round(
         it_load * random.uniform(0.15, 0.30),
         2
     )
 
     total_power = round(
-        it_load + cooling_power + random.uniform(5, 15),
+        it_load
+        + cooling_power
+        + random.uniform(5, 15),
         2
     )
 
@@ -30,8 +63,10 @@ def generate_sensor_data():
     )
 
     return {
-    "Device_ID": os.getenv("DEVICE_ID", "DC-SENSOR-01"),
-    "Timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "Device_ID": DEVICE_ID,
+        "Timestamp": time.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
         "Temperature_C": temperature,
         "Humidity_Percent": humidity,
         "IT_Load_kW": it_load,
@@ -41,29 +76,95 @@ def generate_sensor_data():
     }
 
 
+def on_connect(
+    client,
+    userdata,
+    flags,
+    reason_code,
+    properties
+):
+    if reason_code == 0:
+        print("Connected to MQTT broker!")
+        print("Publishing to:", TOPIC)
+    else:
+        print(
+            "MQTT connection failed:",
+            reason_code
+        )
+
+
+def on_disconnect(
+    client,
+    userdata,
+    disconnect_flags,
+    reason_code,
+    properties
+):
+    print(
+        "Disconnected from MQTT broker.",
+        "Reason:",
+        reason_code
+    )
+
+
 client = mqtt.Client(
     mqtt.CallbackAPIVersion.VERSION2,
-    client_id="datacenter-energy-simulator"
+    client_id=(
+        "datacenter-energy-simulator-"
+        + DEVICE_ID
+    )
 )
 
-client.connect(BROKER, PORT, 60)
-client.loop_start()
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
 
-print("Connected to MQTT broker!")
-print("Publishing data to:", TOPIC)
+
+print("Starting Data Center Sensor Simulator...")
+print("MQTT Broker:", BROKER)
+print("MQTT Port:", PORT)
+print("MQTT Topic:", TOPIC)
+print("Device ID:", DEVICE_ID)
+print("Publishing interval: 10 seconds")
 print("Press Ctrl+C to stop.\n")
 
 
-while True:
-    sensor_data = generate_sensor_data()
-
-    payload = json.dumps(sensor_data)
-
-    client.publish(
-        TOPIC,
-        payload
+try:
+    client.connect(
+        BROKER,
+        PORT,
+        60
     )
 
-    print("Published:", payload)
+    client.loop_start()
 
-    time.sleep(10)
+    while True:
+        sensor_data = generate_sensor_data()
+
+        payload = json.dumps(
+            sensor_data
+        )
+
+        result = client.publish(
+            TOPIC,
+            payload
+        )
+
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(
+                "Published:",
+                payload
+            )
+        else:
+            print(
+                "Publish failed. MQTT code:",
+                result.rc
+            )
+
+        time.sleep(10)
+
+except KeyboardInterrupt:
+    print("\nSensor simulator stopped.")
+
+finally:
+    client.loop_stop()
+    client.disconnect()

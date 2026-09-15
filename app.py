@@ -1,17 +1,10 @@
-import time
-
 import joblib
-
 import matplotlib.pyplot as plt
-
 import pandas as pd
-
 from sklearn.linear_model import LinearRegression
 
 import streamlit as st
-
 from streamlit_autorefresh import st_autorefresh
-
 from supabase import create_client
 
 
@@ -35,12 +28,10 @@ st.markdown(
     """
     <style>
 
-    /* Main font */
     html, body, [class*="css"] {
         font-family: "Segoe UI", Arial, sans-serif;
     }
 
-    /* Main title */
     .main-title {
         font-size: 32px;
         font-weight: 700;
@@ -53,7 +44,6 @@ st.markdown(
         margin-bottom: 20px;
     }
 
-    /* Section headings */
     .section-title {
         font-size: 22px;
         font-weight: 650;
@@ -61,24 +51,20 @@ st.markdown(
         margin-bottom: 12px;
     }
 
-    /* Small information text */
     .info-text {
         font-size: 14px;
         color: #666666;
     }
 
-    /* Sidebar */
     section[data-testid="stSidebar"] {
         padding-top: 1.5rem;
     }
 
-    /* Metric cards */
     div[data-testid="stMetric"] {
         border-radius: 10px;
         padding: 12px;
     }
 
-    /* Dataframes */
     div[data-testid="stDataFrame"] {
         border-radius: 8px;
     }
@@ -116,6 +102,8 @@ st_autorefresh(
 model = joblib.load(
     "random_forest_clean_model.pkl"
 )
+
+
 # ============================================================
 # LOAD ANOMALY DETECTION MODEL
 # ============================================================
@@ -146,8 +134,7 @@ monitoring_columns = [
     "IT_Load_kW",
     "Cooling_Power_kW",
     "Total_Power_kW",
-    "PUE",
-    "Predicted_PUE"
+    "PUE"
 ]
 
 
@@ -182,59 +169,6 @@ if monitoring_df.empty:
     )
 
     st.stop()
-    # ============================================================
-# PUE FORECASTING
-# ============================================================
-
-forecast_data = monitoring_df[
-    ["Timestamp", "PUE"]
-].copy()
-
-forecast_data["PUE"] = pd.to_numeric(
-    forecast_data["PUE"],
-    errors="coerce"
-)
-
-forecast_data = forecast_data.dropna(
-    subset=["PUE"]
-).reset_index(drop=True)
-
-forecast_data["Time_Index"] = range(
-    len(forecast_data)
-)
-
-forecast_model = LinearRegression()
-
-forecast_model.fit(
-    forecast_data[["Time_Index"]],
-    forecast_data["PUE"]
-)
-
-forecast_steps = 6
-
-last_index = forecast_data["Time_Index"].iloc[-1]
-
-future_indexes = range(
-    last_index + 1,
-    last_index + forecast_steps + 1
-)
-
-future_forecast = pd.DataFrame(
-    {
-        "Time_Index": future_indexes
-    }
-)
-
-future_forecast["Forecasted_PUE"] = (
-    forecast_model.predict(
-        future_forecast[["Time_Index"]]
-    )
-)
-
-future_forecast["Forecasted_PUE"] = (
-    future_forecast["Forecasted_PUE"]
-    .round(3)
-)
 
 
 # ============================================================
@@ -246,14 +180,14 @@ monitoring_df["Timestamp"] = pd.to_datetime(
     errors="coerce"
 )
 
+
 numeric_columns = [
     "Temperature_C",
     "Humidity_Percent",
     "IT_Load_kW",
     "Cooling_Power_kW",
     "Total_Power_kW",
-    "PUE",
-    "Predicted_PUE"
+    "PUE"
 ]
 
 
@@ -267,9 +201,119 @@ for column in numeric_columns:
 
 monitoring_df = (
     monitoring_df
-    .dropna(subset=["Timestamp"])
+    .dropna(
+        subset=[
+            "Timestamp",
+            "Temperature_C",
+            "Humidity_Percent",
+            "IT_Load_kW",
+            "Cooling_Power_kW",
+            "PUE"
+        ]
+    )
     .sort_values("Timestamp")
     .reset_index(drop=True)
+)
+
+
+# ============================================================
+# GENERATE ML PREDICTIONS
+# ============================================================
+# IMPORTANT:
+# Predicted_PUE is calculated by the Random Forest locally.
+# It is NOT required to exist in Supabase.
+
+prediction_features = [
+    "Temperature_C",
+    "Humidity_Percent",
+    "IT_Load_kW",
+    "Cooling_Power_kW"
+]
+
+
+prediction_input = monitoring_df[
+    prediction_features
+].copy()
+
+
+monitoring_df["Predicted_PUE"] = (
+    model.predict(prediction_input)
+)
+
+
+monitoring_df["Predicted_PUE"] = (
+    monitoring_df["Predicted_PUE"]
+    .round(3)
+)
+
+
+# ============================================================
+# PUE FORECASTING
+# ============================================================
+
+forecast_data = monitoring_df[
+    ["Timestamp", "PUE"]
+].copy()
+
+
+forecast_data["PUE"] = pd.to_numeric(
+    forecast_data["PUE"],
+    errors="coerce"
+)
+
+
+forecast_data = (
+    forecast_data
+    .dropna(subset=["PUE"])
+    .reset_index(drop=True)
+)
+
+
+forecast_data["Time_Index"] = range(
+    len(forecast_data)
+)
+
+
+forecast_model = LinearRegression()
+
+
+forecast_model.fit(
+    forecast_data[["Time_Index"]],
+    forecast_data["PUE"]
+)
+
+
+forecast_steps = 6
+
+
+last_index = forecast_data[
+    "Time_Index"
+].iloc[-1]
+
+
+future_indexes = range(
+    last_index + 1,
+    last_index + forecast_steps + 1
+)
+
+
+future_forecast = pd.DataFrame(
+    {
+        "Time_Index": future_indexes
+    }
+)
+
+
+future_forecast["Forecasted_PUE"] = (
+    forecast_model.predict(
+        future_forecast[["Time_Index"]]
+    )
+)
+
+
+future_forecast["Forecasted_PUE"] = (
+    future_forecast["Forecasted_PUE"]
+    .round(3)
 )
 
 
@@ -284,34 +328,69 @@ current_temperature = float(
     latest["Temperature_C"]
 )
 
+
 current_humidity = float(
     latest["Humidity_Percent"]
 )
+
 
 current_it_load = float(
     latest["IT_Load_kW"]
 )
 
+
 current_cooling_power = float(
     latest["Cooling_Power_kW"]
 )
+
 
 current_total_power = float(
     latest["Total_Power_kW"]
 )
 
+
 current_pue = float(
     latest["PUE"]
 )
 
-current_predicted_pue = latest["Predicted_PUE"]
 
-if pd.notna(current_predicted_pue):
-    prediction_error = abs(
-        current_pue - float(current_predicted_pue)
-    )
-else:
-    prediction_error = None
+# ============================================================
+# CURRENT LIVE ML PREDICTION
+# ============================================================
+
+current_prediction_input = pd.DataFrame(
+    [
+        {
+            "Temperature_C": current_temperature,
+            "Humidity_Percent": current_humidity,
+            "IT_Load_kW": current_it_load,
+            "Cooling_Power_kW": current_cooling_power
+        }
+    ]
+)
+
+
+current_predicted_pue = float(
+    model.predict(
+        current_prediction_input
+    )[0]
+)
+
+
+current_predicted_pue = round(
+    current_predicted_pue,
+    3
+)
+
+
+# ============================================================
+# PREDICTION ERROR
+# ============================================================
+
+prediction_error = abs(
+    current_pue - current_predicted_pue
+)
+
 
 # ============================================================
 # ML ANOMALY PREDICTION
@@ -329,64 +408,111 @@ anomaly_input = pd.DataFrame(
     ]
 )
 
+
 ml_anomaly_prediction = anomaly_model.predict(
     anomaly_input
 )[0]
 
-if ml_anomaly_prediction == -1:
-    ml_anomaly_status = "Anomaly Detected"
-else:
-    ml_anomaly_status = "Normal"
-    ml_anomaly_score = anomaly_model.decision_function(
+
+ml_anomaly_score = anomaly_model.decision_function(
     anomaly_input
 )[0]
+
 
 ml_anomaly_score = round(
     float(ml_anomaly_score),
     4
 )
 
+
+if ml_anomaly_prediction == -1:
+
+    ml_anomaly_status = "Anomaly Detected"
+
+else:
+
+    ml_anomaly_status = "Normal"
+
+
+# ============================================================
+# RULE-BASED ANOMALY DETECTION
+# ============================================================
+
 cooling_ratio = (
-    current_cooling_power / current_it_load
+    current_cooling_power /
+    current_it_load
 )
+
 
 anomaly_reasons = []
 
+
 if current_pue > 1.50:
-    anomaly_reasons.append("High PUE")
+
+    anomaly_reasons.append(
+        "High PUE"
+    )
+
 
 if current_temperature > 28:
-    anomaly_reasons.append("High Temperature")
+
+    anomaly_reasons.append(
+        "High Temperature"
+    )
+
 
 if cooling_ratio > 0.30:
-    anomaly_reasons.append("High Cooling Ratio")
 
-if prediction_error is not None and prediction_error > 0.10:
-    anomaly_reasons.append("High Prediction Error")
+    anomaly_reasons.append(
+        "High Cooling Ratio"
+    )
+
+
+if prediction_error > 0.10:
+
+    anomaly_reasons.append(
+        "High Prediction Error"
+    )
+
 
 if anomaly_reasons:
+
     anomaly_status = "Anomaly Detected"
+
 else:
+
     anomaly_status = "Normal"
 
-if pd.notna(current_predicted_pue):
-    prediction_error = abs(
-        current_pue - float(current_predicted_pue)
-    )
-else:
-    prediction_error = None
 
-    # PUE Alert
+# ============================================================
+# PUE ALERT
+# ============================================================
 
 if current_pue <= 1.30:
+
     pue_status = "GOOD"
-    pue_alert = "PUE is within the efficient range."
+
+    pue_alert = (
+        "PUE is within the efficient range."
+    )
+
 elif current_pue <= 1.50:
+
     pue_status = "WARNING"
-    pue_alert = "PUE is moderately high. Monitor energy usage."
+
+    pue_alert = (
+        "PUE is moderately high. "
+        "Monitor energy usage."
+    )
+
 else:
+
     pue_status = "CRITICAL"
-    pue_alert = "PUE is high. Immediate energy-efficiency attention is recommended."
+
+    pue_alert = (
+        "PUE is high. Immediate energy-efficiency "
+        "attention is recommended."
+    )
 
 
 # ============================================================
@@ -487,10 +613,14 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.markdown(
-    '<div class="main-title">Data Center Energy Efficiency Monitor</div>',
+    '<div class="main-title">'
+    'Data Center Energy Efficiency Monitor'
+    '</div>',
     unsafe_allow_html=True
 )
+
 
 st.markdown(
     '<div class="subtitle">'
@@ -543,6 +673,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.markdown(
     '<div class="section-title">Live Monitoring</div>',
     unsafe_allow_html=True
@@ -586,47 +717,45 @@ with live_col4:
 
 power_col1, power_col2, power_col3, power_col4, power_col5 = st.columns(5)
 
+
 with power_col1:
+
     st.metric(
         "Total Power",
         f"{current_total_power:.2f} kW"
     )
 
+
 with power_col2:
+
     st.metric(
         "Actual PUE",
         f"{current_pue:.3f}"
     )
 
+
 with power_col3:
-    if pd.notna(current_predicted_pue):
-        st.metric(
-            "Predicted PUE",
-            f"{float(current_predicted_pue):.3f}"
-        )
-    else:
-        st.metric(
-            "Predicted PUE",
-            "Waiting"
-        )
+
+    st.metric(
+        "Predicted PUE",
+        f"{current_predicted_pue:.3f}"
+    )
+
 
 with power_col4:
+
     st.metric(
         "Last Reading",
         latest["Timestamp"].strftime("%H:%M:%S")
     )
 
+
 with power_col5:
-    if prediction_error is not None:
-        st.metric(
-            "Prediction Error",
-            f"{prediction_error:.3f}"
-        )
-    else:
-        st.metric(
-            "Prediction Error",
-            "Waiting"
-        )
+
+    st.metric(
+        "Prediction Error",
+        f"{prediction_error:.3f}"
+    )
 
 
 # ============================================================
@@ -636,17 +765,26 @@ with power_col5:
 if current_pue <= 1.30:
 
     pue_status = "Good"
-    pue_message = "Current energy efficiency is good."
+
+    pue_message = (
+        "Current energy efficiency is good."
+    )
 
 elif current_pue <= 1.50:
 
     pue_status = "Moderate"
-    pue_message = "Energy efficiency should be monitored."
+
+    pue_message = (
+        "Energy efficiency should be monitored."
+    )
 
 else:
 
     pue_status = "Poor"
-    pue_message = "Energy efficiency requires attention."
+
+    pue_message = (
+        "Energy efficiency requires attention."
+    )
 
 
 if pue_status == "Good":
@@ -677,6 +815,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 pue_chart_data = (
     monitoring_df[
         [
@@ -694,6 +833,7 @@ pue_chart_data = (
     .set_index("Timestamp")
 )
 
+
 pue_chart_data = pue_chart_data.rename(
     columns={
         "PUE": "Actual PUE",
@@ -701,10 +841,13 @@ pue_chart_data = pue_chart_data.rename(
     }
 )
 
+
 st.line_chart(
     pue_chart_data,
     use_container_width=True
 )
+
+
 # ============================================================
 # PUE FORECAST
 # ============================================================
@@ -714,9 +857,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 forecast_chart_data = future_forecast[
     ["Forecasted_PUE"]
 ].copy()
+
 
 forecast_chart_data.index = [
     f"Future {i}"
@@ -726,14 +871,17 @@ forecast_chart_data.index = [
     )
 ]
 
+
 st.line_chart(
     forecast_chart_data,
     use_container_width=True
 )
 
+
 st.caption(
     "Forecast based on historical PUE trends using Linear Regression."
 )
+
 
 st.dataframe(
     future_forecast[
@@ -741,6 +889,7 @@ st.dataframe(
     ],
     use_container_width=True
 )
+
 
 # ============================================================
 # PUE PREDICTION
@@ -751,12 +900,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.divider()
+
 
 st.markdown(
     '<div class="section-title">PUE Prediction</div>',
     unsafe_allow_html=True
 )
+
 
 st.write(
     "Enter operating parameters to generate a PUE prediction "
@@ -777,6 +929,7 @@ with input_col1:
         step=0.1
     )
 
+
     humidity = st.number_input(
         "Humidity (%)",
         min_value=20.0,
@@ -784,6 +937,7 @@ with input_col1:
         value=50.0,
         step=0.1
     )
+
 
     it_load = st.number_input(
         "IT Load (kW)",
@@ -803,6 +957,7 @@ with input_col2:
         value=35.0,
         step=0.1
     )
+
 
     total_power = st.number_input(
         "Total Power (kW)",
@@ -912,10 +1067,14 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.divider()
 
+
 st.markdown(
-    '<div class="section-title">Machine Learning Model Performance</div>',
+    '<div class="section-title">'
+    'Machine Learning Model Performance'
+    '</div>',
     unsafe_allow_html=True
 )
 
@@ -1013,29 +1172,36 @@ fig, ax = plt.subplots(
     figsize=(8, 4)
 )
 
+
 ax.barh(
     importance_df["Feature"],
     importance_df["Importance"]
 )
 
+
 ax.set_xlabel(
     "Importance"
 )
+
 
 ax.set_ylabel(
     "Feature"
 )
 
+
 ax.set_title(
     "Random Forest Feature Importance"
 )
 
+
 plt.tight_layout()
+
 
 st.pyplot(
     fig,
     use_container_width=True
 )
+
 
 plt.close(fig)
 
@@ -1049,7 +1215,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.divider()
+
 
 st.markdown(
     '<div class="section-title">Energy Analysis</div>',
@@ -1300,6 +1468,7 @@ st.bar_chart(
 
 st.divider()
 
+
 st.markdown(
     '<div class="section-title">System Health</div>',
     unsafe_allow_html=True
@@ -1377,12 +1546,16 @@ with health_col2:
 st.progress(
     health_score / 100
 )
+
+
 # ============================================================
 # ANOMALY DETECTION
 # ============================================================
+
 st.subheader(
     "Anomaly Detection"
 )
+
 
 if ml_anomaly_status == "Anomaly Detected":
 
@@ -1414,7 +1587,9 @@ else:
     st.write(
         "No unusual operating conditions detected."
     )
-    st.caption(
+
+
+st.caption(
     f"Isolation Forest Anomaly Score: {ml_anomaly_score:.4f}"
 )
 
@@ -1493,15 +1668,10 @@ with alert_col3:
             f"Power Normal: {current_total_power:.2f} kW"
         )
 
+
 with alert_col4:
 
-    if prediction_error is None:
-
-        st.info(
-            "Prediction Error: Waiting"
-        )
-
-    elif prediction_error > 0.10:
+    if prediction_error > 0.10:
 
         st.error(
             f"High Prediction Error: {prediction_error:.3f}"
@@ -1529,7 +1699,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.divider()
+
 
 st.markdown(
     '<div class="section-title">Monitoring Data</div>',
@@ -1577,6 +1749,7 @@ st.download_button(
 
 st.divider()
 
+
 st.markdown(
     '<div class="section-title">Project Information</div>',
     unsafe_allow_html=True
@@ -1616,7 +1789,9 @@ st.divider()
 
 st.caption(
     "Last monitoring reading: "
-    + latest["Timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+    + latest["Timestamp"].strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 )
 
 
