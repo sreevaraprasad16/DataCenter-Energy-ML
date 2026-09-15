@@ -1,9 +1,17 @@
 import time
+
 import joblib
+
 import matplotlib.pyplot as plt
+
 import pandas as pd
+
+from sklearn.linear_model import LinearRegression
+
 import streamlit as st
+
 from streamlit_autorefresh import st_autorefresh
+
 from supabase import create_client
 
 
@@ -108,6 +116,13 @@ st_autorefresh(
 model = joblib.load(
     "random_forest_clean_model.pkl"
 )
+# ============================================================
+# LOAD ANOMALY DETECTION MODEL
+# ============================================================
+
+anomaly_model = joblib.load(
+    "anomaly_detection_model.pkl"
+)
 
 
 # ============================================================
@@ -166,6 +181,59 @@ if monitoring_df.empty:
     )
 
     st.stop()
+    # ============================================================
+# PUE FORECASTING
+# ============================================================
+
+forecast_data = monitoring_df[
+    ["Timestamp", "PUE"]
+].copy()
+
+forecast_data["PUE"] = pd.to_numeric(
+    forecast_data["PUE"],
+    errors="coerce"
+)
+
+forecast_data = forecast_data.dropna(
+    subset=["PUE"]
+).reset_index(drop=True)
+
+forecast_data["Time_Index"] = range(
+    len(forecast_data)
+)
+
+forecast_model = LinearRegression()
+
+forecast_model.fit(
+    forecast_data[["Time_Index"]],
+    forecast_data["PUE"]
+)
+
+forecast_steps = 6
+
+last_index = forecast_data["Time_Index"].iloc[-1]
+
+future_indexes = range(
+    last_index + 1,
+    last_index + forecast_steps + 1
+)
+
+future_forecast = pd.DataFrame(
+    {
+        "Time_Index": future_indexes
+    }
+)
+
+future_forecast["Forecasted_PUE"] = (
+    forecast_model.predict(
+        future_forecast[["Time_Index"]]
+    )
+)
+
+future_forecast["Forecasted_PUE"] = (
+    future_forecast["Forecasted_PUE"]
+    .round(3)
+)
 
 
 # ============================================================
@@ -243,6 +311,81 @@ if pd.notna(current_predicted_pue):
     )
 else:
     prediction_error = None
+
+# ============================================================
+# ML ANOMALY PREDICTION
+# ============================================================
+
+anomaly_input = pd.DataFrame(
+    [
+        {
+            "Temperature_C": current_temperature,
+            "Humidity_Percent": current_humidity,
+            "IT_Load_kW": current_it_load,
+            "Cooling_Power_kW": current_cooling_power,
+            "PUE": current_pue
+        }
+    ]
+)
+
+ml_anomaly_prediction = anomaly_model.predict(
+    anomaly_input
+)[0]
+
+if ml_anomaly_prediction == -1:
+    ml_anomaly_status = "Anomaly Detected"
+else:
+    ml_anomaly_status = "Normal"
+    ml_anomaly_score = anomaly_model.decision_function(
+    anomaly_input
+)[0]
+
+ml_anomaly_score = round(
+    float(ml_anomaly_score),
+    4
+)
+
+cooling_ratio = (
+    current_cooling_power / current_it_load
+)
+
+anomaly_reasons = []
+
+if current_pue > 1.50:
+    anomaly_reasons.append("High PUE")
+
+if current_temperature > 28:
+    anomaly_reasons.append("High Temperature")
+
+if cooling_ratio > 0.30:
+    anomaly_reasons.append("High Cooling Ratio")
+
+if prediction_error is not None and prediction_error > 0.10:
+    anomaly_reasons.append("High Prediction Error")
+
+if anomaly_reasons:
+    anomaly_status = "Anomaly Detected"
+else:
+    anomaly_status = "Normal"
+
+if pd.notna(current_predicted_pue):
+    prediction_error = abs(
+        current_pue - float(current_predicted_pue)
+    )
+else:
+    prediction_error = None
+
+    # PUE Alert
+
+if current_pue <= 1.30:
+    pue_status = "GOOD"
+    pue_alert = "PUE is within the efficient range."
+elif current_pue <= 1.50:
+    pue_status = "WARNING"
+    pue_alert = "PUE is moderately high. Monitor energy usage."
+else:
+    pue_status = "CRITICAL"
+    pue_alert = "PUE is high. Immediate energy-efficiency attention is recommended."
 
 
 # ============================================================
@@ -533,7 +676,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 pue_chart_data = (
     monitoring_df[
         [
@@ -542,10 +684,14 @@ pue_chart_data = (
             "Predicted_PUE"
         ]
     ]
-    .dropna(subset=["PUE"])
+    .dropna(
+        subset=[
+            "PUE",
+            "Predicted_PUE"
+        ]
+    )
     .set_index("Timestamp")
 )
-
 
 pue_chart_data = pue_chart_data.rename(
     columns={
@@ -554,12 +700,46 @@ pue_chart_data = pue_chart_data.rename(
     }
 )
 
-
 st.line_chart(
     pue_chart_data,
     use_container_width=True
 )
+# ============================================================
+# PUE FORECAST
+# ============================================================
 
+st.markdown(
+    '<div class="section-title">PUE Forecast</div>',
+    unsafe_allow_html=True
+)
+
+forecast_chart_data = future_forecast[
+    ["Forecasted_PUE"]
+].copy()
+
+forecast_chart_data.index = [
+    f"Future {i}"
+    for i in range(
+        1,
+        len(forecast_chart_data) + 1
+    )
+]
+
+st.line_chart(
+    forecast_chart_data,
+    use_container_width=True
+)
+
+st.caption(
+    "Forecast based on historical PUE trends using Linear Regression."
+)
+
+st.dataframe(
+    future_forecast[
+        ["Forecasted_PUE"]
+    ],
+    use_container_width=True
+)
 
 # ============================================================
 # PUE PREDICTION
@@ -1196,6 +1376,46 @@ with health_col2:
 st.progress(
     health_score / 100
 )
+# ============================================================
+# ANOMALY DETECTION
+# ============================================================
+st.subheader(
+    "Anomaly Detection"
+)
+
+if ml_anomaly_status == "Anomaly Detected":
+
+    st.error(
+        "⚠️ ML Anomaly Detected"
+    )
+
+    st.write(
+        "Isolation Forest detected an unusual operating pattern."
+    )
+
+elif anomaly_status == "Anomaly Detected":
+
+    st.warning(
+        "⚠️ Rule-Based Anomaly Detected"
+    )
+
+    st.write(
+        "Detected conditions:",
+        ", ".join(anomaly_reasons)
+    )
+
+else:
+
+    st.success(
+        "✅ System Normal"
+    )
+
+    st.write(
+        "No unusual operating conditions detected."
+    )
+    st.caption(
+    f"Isolation Forest Anomaly Score: {ml_anomaly_score:.4f}"
+)
 
 
 # ============================================================
@@ -1207,7 +1427,7 @@ st.subheader(
 )
 
 
-alert_col1, alert_col2, alert_col3 = st.columns(3)
+alert_col1, alert_col2, alert_col3, alert_col4 = st.columns(4)
 
 
 with alert_col1:
@@ -1270,6 +1490,32 @@ with alert_col3:
 
         st.success(
             f"Power Normal: {current_total_power:.2f} kW"
+        )
+
+with alert_col4:
+
+    if prediction_error is None:
+
+        st.info(
+            "Prediction Error: Waiting"
+        )
+
+    elif prediction_error > 0.10:
+
+        st.error(
+            f"High Prediction Error: {prediction_error:.3f}"
+        )
+
+    elif prediction_error > 0.05:
+
+        st.warning(
+            f"Prediction Error Warning: {prediction_error:.3f}"
+        )
+
+    else:
+
+        st.success(
+            f"Prediction Error Normal: {prediction_error:.3f}"
         )
 
 

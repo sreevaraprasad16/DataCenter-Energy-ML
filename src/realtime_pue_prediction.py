@@ -83,16 +83,25 @@ def on_message(client, userdata, message):
 
         prediction = model.predict(input_data)
 
-        predicted_pue = round(float(prediction[0]), 3)
+        predicted_pue = round(
+            float(prediction[0]),
+            3
+        )
 
         # -------------------------------------------------
-        # Find matching Supabase row
+        # Find latest Supabase row
         # -------------------------------------------------
 
         result = (
-            supabase.table("monitoring_data")
-            .select("id")
-            .eq("Timestamp", data["Timestamp"])
+            supabase
+            .table("monitoring_data")
+            .select(
+                "id, Timestamp, created_at"
+            )
+            .order(
+                "created_at",
+                desc=True
+            )
             .limit(1)
             .execute()
         )
@@ -105,17 +114,39 @@ def on_message(client, userdata, message):
 
             row_id = result.data[0]["id"]
 
-            supabase.table("monitoring_data").update(
-                {
-                    "Predicted_PUE": predicted_pue
-                }
-            ).eq("id", row_id).execute()
+            update_result = (
+                supabase
+                .table("monitoring_data")
+                .update(
+                    {
+                        "Predicted_PUE": predicted_pue
+                    }
+                )
+                .eq(
+                    "id",
+                    row_id
+                )
+                .execute()
+            )
 
-            print("Predicted PUE saved to Supabase.")
+            if update_result.data:
+
+                print(
+                    "Predicted PUE saved to Supabase."
+                )
+
+            else:
+
+                print(
+                    "Prediction calculated, "
+                    "but Supabase update returned no row."
+                )
 
         else:
 
-            print("Matching Supabase row not found.")
+            print(
+                "Supabase monitoring row not found."
+            )
 
         # -------------------------------------------------
         # Display result
@@ -125,16 +156,46 @@ def on_message(client, userdata, message):
         print("REAL-TIME PUE PREDICTION")
         print("====================================")
 
-        print("Timestamp:", data["Timestamp"])
-        print("Temperature:", data["Temperature_C"], "°C")
-        print("Humidity:", data["Humidity_Percent"], "%")
-        print("IT Load:", data["IT_Load_kW"], "kW")
-        print("Cooling Power:", data["Cooling_Power_kW"], "kW")
+        print(
+            "Timestamp:",
+            data["Timestamp"]
+        )
+
+        print(
+            "Temperature:",
+            data["Temperature_C"],
+            "°C"
+        )
+
+        print(
+            "Humidity:",
+            data["Humidity_Percent"],
+            "%"
+        )
+
+        print(
+            "IT Load:",
+            data["IT_Load_kW"],
+            "kW"
+        )
+
+        print(
+            "Cooling Power:",
+            data["Cooling_Power_kW"],
+            "kW"
+        )
 
         print("------------------------------------")
 
-        print("Actual PUE:", data["PUE"])
-        print("Predicted PUE:", predicted_pue)
+        print(
+            "Actual PUE:",
+            data["PUE"]
+        )
+
+        print(
+            "Predicted PUE:",
+            predicted_pue
+        )
 
         print("====================================")
 
@@ -162,9 +223,17 @@ client.on_message = on_message
 # START SERVICE
 # =====================================================
 
-print("\nStarting Real-Time PUE Prediction Service...")
-print("Waiting for telemetry...")
-print("Press Ctrl+C to stop.\n")
+print(
+    "\nStarting Real-Time PUE Prediction Service..."
+)
+
+print(
+    "Waiting for telemetry..."
+)
+
+print(
+    "Press Ctrl+C to stop.\n"
+)
 
 
 client.connect(
